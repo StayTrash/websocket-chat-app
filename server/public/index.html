@@ -1,22 +1,32 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebRTC File Share</title>
+  <title>WebRTC Learning Mode</title>
 </head>
 <body>
-  <h2>AirDrop Style File Share</h2>
+  <h2>WebRTC File Share (Learning Mode)</h2>
 
-  <button onclick="createRoom()">Create Room</button>
+  <button id="createBtn">Create Room</button>
   <br><br>
 
   <input id="roomInput" placeholder="Enter Room ID" />
-  <button onclick="joinRoom()">Join Room</button>
+  <button id="joinBtn">Join Room</button>
 
   <h3 id="roomDisplay"></h3>
 
-  <div id="fileSection" style="display:none;">
+  <div id="mainSection" style="display:none;">
+    <hr>
+
+    <h4>Chat</h4>
+    <input id="messageInput" placeholder="Type message..." />
+    <button id="sendBtn">Send</button>
+    <ul id="messages"></ul>
+
+    <hr>
+
+    <h4>File Transfer</h4>
     <input type="file" id="fileInput" />
-    <button onclick="sendFile()">Send File</button>
+    <button id="sendFileBtn">Send File</button>
 
     <br><br>
 
@@ -35,7 +45,76 @@
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     };
 
-    function createPeer(isInitiator) {
+    // ---- ROOM BUTTONS ----
+    document.getElementById("createBtn").onclick = () => {
+      socket.emit("create-room");
+    };
+
+    document.getElementById("joinBtn").onclick = () => {
+      const roomId = document.getElementById("roomInput").value;
+      socket.emit("join-room", roomId);
+    };
+
+    document.getElementById("sendBtn").onclick = () => {
+      const input = document.getElementById("messageInput");
+      socket.emit("room-message", {
+        roomId: currentRoom,
+        message: input.value
+      });
+      input.value = "";
+    };
+
+    socket.on("room-created", (roomId) => {
+      currentRoom = roomId;
+      document.getElementById("roomDisplay").innerText = "Room: " + roomId;
+      document.getElementById("mainSection").style.display = "block";
+      setupPeer(true);
+    });
+
+    socket.on("room-joined", (roomId) => {
+      currentRoom = roomId;
+      document.getElementById("roomDisplay").innerText = "Joined: " + roomId;
+      document.getElementById("mainSection").style.display = "block";
+      setupPeer(false);
+    });
+
+    socket.on("room-message", (msg) => {
+      const li = document.createElement("li");
+      li.innerText = msg;
+      document.getElementById("messages").appendChild(li);
+    });
+
+    socket.on("peer-joined", async () => {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      socket.emit("signal", {
+        roomId: currentRoom,
+        data: { offer }
+      });
+    });
+
+    socket.on("signal", async (data) => {
+      if (data.offer) {
+        await peerConnection.setRemoteDescription(data.offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        socket.emit("signal", {
+          roomId: currentRoom,
+          data: { answer }
+        });
+      } else if (data.answer) {
+        await peerConnection.setRemoteDescription(data.answer);
+      } else if (data.candidate) {
+        await peerConnection.addIceCandidate(data.candidate);
+      }
+    });
+
+    socket.on("error-message", alert);
+
+    // ---- WEBRTC SETUP ----
+    function setupPeer(isInitiator) {
       peerConnection = new RTCPeerConnection(config);
 
       if (isInitiator) {
@@ -59,16 +138,20 @@
     }
 
     function setupDataChannel() {
+      dataChannel.binaryType = "arraybuffer";
+
       let receivedBuffers = [];
       let receivedSize = 0;
       let fileSize = 0;
       let fileName = "";
+      let startTime = Date.now();
 
       dataChannel.onmessage = (event) => {
         if (typeof event.data === "string") {
           const meta = JSON.parse(event.data);
           fileSize = meta.size;
           fileName = meta.name;
+          startTime = Date.now();
           return;
         }
 
@@ -76,9 +159,12 @@
         receivedSize += event.data.byteLength;
 
         const percent = Math.floor((receivedSize / fileSize) * 100);
+        const seconds = (Date.now() - startTime) / 1000;
+        const speed = (receivedSize / 1024 / 1024 / seconds).toFixed(2);
+
         document.getElementById("progressBar").value = percent;
         document.getElementById("progressText").innerText =
-          "Download: " + percent + "%";
+          `Download: ${percent}% (${speed} MB/s)`;
 
         if (receivedSize === fileSize) {
           const blob = new Blob(receivedBuffers);
@@ -93,86 +179,36 @@
       };
     }
 
-    async function createRoom() {
-      socket.emit("create-room");
-    }
-
-    async function joinRoom() {
-      const roomId = document.getElementById("roomInput").value;
-      socket.emit("join-room", roomId);
-    }
-
-    socket.on("room-created", (roomId) => {
-      currentRoom = roomId;
-      document.getElementById("roomDisplay").innerText =
-        "Room ID: " + roomId;
-      document.getElementById("fileSection").style.display = "block";
-      createPeer(true);
-    });
-
-    socket.on("room-joined", (roomId) => {
-      currentRoom = roomId;
-      document.getElementById("roomDisplay").innerText =
-        "Joined: " + roomId;
-      document.getElementById("fileSection").style.display = "block";
-      createPeer(false);
-    });
-
-    socket.on("peer-joined", async () => {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-
-      socket.emit("signal", {
-        roomId: currentRoom,
-        data: { offer }
-      });
-    });
-
-    socket.on("signal", async (data) => {
-      if (data.offer) {
-        await peerConnection.setRemoteDescription(
-          new RTCSessionDescription(data.offer)
-        );
-
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-
-        socket.emit("signal", {
-          roomId: currentRoom,
-          data: { answer }
-        });
-      } else if (data.answer) {
-        await peerConnection.setRemoteDescription(
-          new RTCSessionDescription(data.answer)
-        );
-      } else if (data.candidate) {
-        await peerConnection.addIceCandidate(
-          new RTCIceCandidate(data.candidate)
-        );
-      }
-    });
-
-    function sendFile() {
+    // ---- FILE SEND ----
+    document.getElementById("sendFileBtn").onclick = async () => {
       const file = document.getElementById("fileInput").files[0];
       if (!file) return;
 
-      dataChannel.send(
-        JSON.stringify({ name: file.name, size: file.size })
-      );
+      dataChannel.send(JSON.stringify({
+        name: file.name,
+        size: file.size
+      }));
 
       const chunkSize = 64 * 1024;
       let offset = 0;
       const reader = new FileReader();
+      const startTime = Date.now();
 
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
+        while (dataChannel.bufferedAmount > 4 * 1024 * 1024) {
+          await new Promise(r => setTimeout(r, 50));
+        }
+
         dataChannel.send(e.target.result);
-
         offset += e.target.result.byteLength;
+
         const percent = Math.floor((offset / file.size) * 100);
+        const seconds = (Date.now() - startTime) / 1000;
+        const speed = (offset / 1024 / 1024 / seconds).toFixed(2);
 
         document.getElementById("progressBar").value = percent;
         document.getElementById("progressText").innerText =
-          "Upload: " + percent + "%";
+          `Upload: ${percent}% (${speed} MB/s)`;
 
         if (offset < file.size) {
           readSlice(offset);
@@ -185,7 +221,7 @@
       }
 
       readSlice(0);
-    }
+    };
   </script>
 </body>
 </html>

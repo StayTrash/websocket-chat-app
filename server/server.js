@@ -17,15 +17,18 @@ function generateRoomId() {
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
+  // CREATE ROOM
   socket.on("create-room", () => {
-    const roomId = generateRoomId();
+    console.log("Create room request received");
 
+    const roomId = generateRoomId();
     rooms.set(roomId, new Set([socket.id]));
     socket.join(roomId);
 
     socket.emit("room-created", roomId);
   });
 
+  // JOIN ROOM
   socket.on("join-room", (roomId) => {
     const room = rooms.get(roomId);
 
@@ -41,9 +44,14 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("peer-joined");
   });
 
-  // WebRTC signaling
+  // SIGNALING
   socket.on("signal", ({ roomId, data }) => {
     socket.to(roomId).emit("signal", data);
+  });
+
+  // CHAT
+  socket.on("room-message", ({ roomId, message }) => {
+    io.to(roomId).emit("room-message", message);
   });
 
   socket.on("disconnect", () => {
