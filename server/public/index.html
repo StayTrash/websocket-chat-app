@@ -1,31 +1,78 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebSocket Demo</title>
+  <title>Room Chat</title>
 </head>
 <body>
-  <h2>Simple WebSocket Chat</h2>
+  <h2>Temporary Room Chat</h2>
 
-  <input id="messageInput" placeholder="Type message..." />
-  <button onclick="sendMessage()">Send</button>
+  <button onclick="createRoom()">Create Room</button>
 
-  <ul id="messages"></ul>
+  <br><br>
+
+  <input id="roomInput" placeholder="Enter Room ID" />
+  <button onclick="joinRoom()">Join Room</button>
+
+  <h3 id="roomDisplay"></h3>
+
+  <div id="chatSection" style="display:none;">
+    <input id="messageInput" placeholder="Type message..." />
+    <button onclick="sendMessage()">Send</button>
+    <ul id="messages"></ul>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+    let currentRoom = null;
 
-    socket.on("chat-message", (msg) => {
+    function createRoom() {
+      socket.emit("create-room");
+    }
+
+    function joinRoom() {
+      const roomId = document.getElementById("roomInput").value;
+      socket.emit("join-room", roomId);
+    }
+
+    function sendMessage() {
+      const input = document.getElementById("messageInput");
+      socket.emit("room-message", {
+        roomId: currentRoom,
+        message: input.value
+      });
+      input.value = "";
+    }
+
+    socket.on("room-created", (roomId) => {
+      currentRoom = roomId;
+      document.getElementById("roomDisplay").innerText = "Room ID: " + roomId;
+      document.getElementById("chatSection").style.display = "block";
+    });
+
+    socket.on("room-joined", (roomId) => {
+      currentRoom = roomId;
+      document.getElementById("roomDisplay").innerText = "Joined Room: " + roomId;
+      document.getElementById("chatSection").style.display = "block";
+    });
+
+    socket.on("room-message", (msg) => {
       const li = document.createElement("li");
       li.innerText = msg;
       document.getElementById("messages").appendChild(li);
     });
 
-    function sendMessage() {
-      const input = document.getElementById("messageInput");
-      socket.emit("chat-message", input.value);
-      input.value = "";
-    }
+    socket.on("error-message", (msg) => {
+      alert(msg);
+    });
+
+    socket.on("user-connected", () => {
+      console.log("Another user joined the room");
+    });
+
+    socket.on("user-disconnected", () => {
+      console.log("A user left the room");
+    });
   </script>
 </body>
 </html>
