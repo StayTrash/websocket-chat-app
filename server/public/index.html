@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebRTC Learning Mode</title>
+  <title>WebRTC Auto Destroy Share</title>
 </head>
 <body>
-  <h2>WebRTC File Share (Learning Mode)</h2>
+  <h2>WebRTC AirDrop-Level Share</h2>
 
   <button id="createBtn">Create Room</button>
   <br><br>
@@ -78,12 +78,6 @@
       setupPeer(false);
     });
 
-    socket.on("room-message", (msg) => {
-      const li = document.createElement("li");
-      li.innerText = msg;
-      document.getElementById("messages").appendChild(li);
-    });
-
     socket.on("peer-joined", async () => {
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
@@ -109,6 +103,22 @@
       } else if (data.candidate) {
         await peerConnection.addIceCandidate(data.candidate);
       }
+    });
+
+    socket.on("room-message", (msg) => {
+      const li = document.createElement("li");
+      li.innerText = msg;
+      document.getElementById("messages").appendChild(li);
+    });
+
+    socket.on("transfer-complete", () => {
+      document.getElementById("progressText").innerText =
+        "Transfer finished. Room will close in 10 seconds...";
+    });
+
+    socket.on("room-destroyed", (reason) => {
+      alert(reason);
+      location.reload();
     });
 
     socket.on("error-message", alert);
@@ -144,7 +154,7 @@
       let receivedSize = 0;
       let fileSize = 0;
       let fileName = "";
-      let startTime = Date.now();
+      let startTime = 0;
 
       dataChannel.onmessage = (event) => {
         if (typeof event.data === "string") {
@@ -175,6 +185,8 @@
 
           document.getElementById("progressText").innerText =
             "Download Complete ✅";
+
+          socket.emit("transfer-complete", currentRoom);
         }
       };
     }
