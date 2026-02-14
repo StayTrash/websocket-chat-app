@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Room Chat</title>
+  <title>Room File Share</title>
 </head>
 <body>
-  <h2>Temporary Room Chat</h2>
+  <h2>Temporary Room File Share</h2>
 
   <button onclick="createRoom()">Create Room</button>
-
   <br><br>
 
   <input id="roomInput" placeholder="Enter Room ID" />
@@ -17,15 +16,32 @@
   <h4 id="userCount"></h4>
 
   <div id="chatSection" style="display:none;">
+    <hr>
+
     <input id="messageInput" placeholder="Type message..." />
     <button onclick="sendMessage()">Send</button>
     <ul id="messages"></ul>
+
+    <hr>
+
+    <input type="file" id="fileInput" />
+    <button onclick="sendFile()">Send File</button>
+
+    <br><br>
+
+    <progress id="progressBar" value="0" max="100" style="width:300px;"></progress>
+    <p id="progressText"></p>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     let currentRoom = null;
+
+    let receivedSize = 0;
+    let receivedChunks = [];
+    let incomingFileName = "";
+    let incomingTotalSize = 0;
 
     function createRoom() {
       socket.emit("create-room");
@@ -45,6 +61,72 @@
       input.value = "";
     }
 
+    function sendFile() {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) return;
+
+      const chunkSize = 64 * 1024;
+      let offset = 0;
+      const reader = new FileReader();
+
+      reader.onload = function (e) {
+        socket.emit("file-chunk", {
+          roomId: currentRoom,
+          chunk: e.target.result,
+          fileName: file.name,
+          totalSize: file.size
+        });
+
+        offset += e.target.result.byteLength;
+
+        const percent = Math.floor((offset / file.size) * 100);
+        document.getElementById("progressBar").value = percent;
+        document.getElementById("progressText").innerText =
+          "Upload: " + percent + "%";
+
+        if (offset < file.size) {
+          readSlice(offset);
+        }
+      };
+
+      function readSlice(o) {
+        const slice = file.slice(o, o + chunkSize);
+        reader.readAsArrayBuffer(slice);
+      }
+
+      readSlice(0);
+    }
+
+    socket.on("file-chunk", ({ chunk, fileName, totalSize }) => {
+      if (!incomingFileName) {
+        incomingFileName = fileName;
+        incomingTotalSize = totalSize;
+        receivedSize = 0;
+        receivedChunks = [];
+      }
+
+      receivedChunks.push(chunk);
+      receivedSize += chunk.byteLength;
+
+      const percent = Math.floor((receivedSize / totalSize) * 100);
+      document.getElementById("progressBar").value = percent;
+      document.getElementById("progressText").innerText =
+        "Download: " + percent + "%";
+
+      if (receivedSize === totalSize) {
+        const blob = new Blob(receivedChunks);
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = incomingFileName;
+        link.click();
+
+        document.getElementById("progressText").innerText =
+          "Download Complete ✅";
+
+        incomingFileName = "";
+      }
+    });
+
     socket.on("room-created", (roomId) => {
       currentRoom = roomId;
       document.getElementById("roomDisplay").innerText = "Room ID: " + roomId;
@@ -53,7 +135,8 @@
 
     socket.on("room-joined", (roomId) => {
       currentRoom = roomId;
-      document.getElementById("roomDisplay").innerText = "Joined Room: " + roomId;
+      document.getElementById("roomDisplay").innerText =
+        "Joined Room: " + roomId;
       document.getElementById("chatSection").style.display = "block";
     });
 
