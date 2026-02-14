@@ -14,6 +14,7 @@
   <button onclick="joinRoom()">Join Room</button>
 
   <h3 id="roomDisplay"></h3>
+  <h4 id="userCount"></h4>
 
   <div id="chatSection" style="display:none;">
     <input id="messageInput" placeholder="Type message..." />
@@ -62,16 +63,18 @@
       document.getElementById("messages").appendChild(li);
     });
 
+    socket.on("user-count", (count) => {
+      document.getElementById("userCount").innerText =
+        "Users in room: " + count + " / 2";
+    });
+
+    socket.on("room-destroyed", (reason) => {
+      alert(reason);
+      location.reload();
+    });
+
     socket.on("error-message", (msg) => {
       alert(msg);
-    });
-
-    socket.on("user-connected", () => {
-      console.log("Another user joined the room");
-    });
-
-    socket.on("user-disconnected", () => {
-      console.log("A user left the room");
     });
   </script>
 </body>
