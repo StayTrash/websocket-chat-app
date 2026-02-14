@@ -8,21 +8,31 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
-// Store rooms in memory
 const rooms = new Map();
-
-/*
-Room structure:
-{
-  roomId: {
-    users: Set(socketIds),
-    createdAt: timestamp
-  }
-}
-*/
+const ROOM_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 function generateRoomId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function destroyRoom(roomId, reason = "Room expired") {
+  if (rooms.has(roomId)) {
+    io.to(roomId).emit("room-destroyed", reason);
+
+    const room = rooms.get(roomId);
+
+    room.users.forEach((socketId) => {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.leave(roomId);
+      }
+    });
+
+    clearTimeout(room.timeout);
+    rooms.delete(roomId);
+
+    console.log("Room destroyed:", roomId);
+  }
 }
 
 io.on("connection", (socket) => {
@@ -32,14 +42,19 @@ io.on("connection", (socket) => {
   socket.on("create-room", () => {
     const roomId = generateRoomId();
 
+    const timeout = setTimeout(() => {
+      destroyRoom(roomId, "Room expired after 5 minutes");
+    }, ROOM_TIMEOUT);
+
     rooms.set(roomId, {
       users: new Set([socket.id]),
       createdAt: Date.now(),
+      timeout,
     });
 
     socket.join(roomId);
-
     socket.emit("room-created", roomId);
+    socket.emit("user-count", 1);
 
     console.log("Room created:", roomId);
   });
@@ -62,12 +77,14 @@ io.on("connection", (socket) => {
     socket.join(roomId);
 
     socket.emit("room-joined", roomId);
-    io.to(roomId).emit("user-connected");
+
+    const userCount = room.users.size;
+    io.to(roomId).emit("user-count", userCount);
 
     console.log(socket.id, "joined", roomId);
   });
 
-  // ROOM MESSAGE
+  // MESSAGE
   socket.on("room-message", ({ roomId, message }) => {
     io.to(roomId).emit("room-message", message);
   });
@@ -80,11 +97,11 @@ io.on("connection", (socket) => {
       if (room.users.has(socket.id)) {
         room.users.delete(socket.id);
 
-        io.to(roomId).emit("user-disconnected");
+        const userCount = room.users.size;
+        io.to(roomId).emit("user-count", userCount);
 
         if (room.users.size === 0) {
-          rooms.delete(roomId);
-          console.log("Room destroyed:", roomId);
+          destroyRoom(roomId, "All users left");
         }
       }
     }
