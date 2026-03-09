@@ -37,7 +37,7 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
 
     if (!room || room.size >= 2) {
-      socket.emit("error-message", "Room invalid or full");
+      socket.emit("error message", "Room invalid or full");
       return;
     }
 
